@@ -81,11 +81,12 @@ See `integration/paper/ctm_coprocessor.pdf` for the complete research paper.
 If you use this work, please cite:
 
 ```bibtex
-@article{jaff2025nanctm,
-  title={Continuous Thought Machines as Thinking Coprocessors for Language Models},
-  author={Jaff, Geby and Claude 4.5 Opus},
-  journal={arXiv preprint},
-  year={2025}
+@article{jaff2025,
+  title = {Continuous Thought Machines as Thinking Coprocessors for Language Models},
+  author = {Geby Jaff and Claude 4.5 Opus},
+  year = {2025},
+  url = {https://archivara.org/paper/5f25ef52-4487-4c22-af0e-dd1ad3e567d3},
+  abstract = {Large Language Models (LLMs) excel at pattern matching but often struggle with tasks requiring multi-step algorithmic reasoning. We explore augmenting Transformer-based language models with \textbf{Continuous Thought Machines (CTMs)}---recurrent neural modules that perform iterative refinement of hidden representations. Unlike standard Transformers that produce outputs in a single forward pass, CTMs introduce ``thinking time'' through multiple internal iterations. We demonstrate this approach on...}
 }
 ```
 
