@@ -1,0 +1,33 @@
+
+\begin{table}[h]
+\centering
+\caption{Performance comparison on Multi-Parity Task (sequence length=5, max number=50)}
+\label{tab:results}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Metric} & \textbf{Base Model} & \textbf{With CTM} & \textbf{Improvement} \\
+\midrule
+Bit Accuracy & 43.4\% & 91.1\% & +47.7\% \\
+Sequence Accuracy & 0.0\% & 58.9\% & +58.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Model Configuration}
+\label{tab:config}
+\begin{tabular}{lr}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Nanochat layers & 4 \\
+Attention heads & 4 \\
+Embedding dimension & 128 \\
+CTM iterations & 20 \\
+CTM dimension & 128 \\
+Total parameters & 925,757 \\
+Training epochs & 40 \\
+\bottomrule
+\end{tabular}
+\end{table}

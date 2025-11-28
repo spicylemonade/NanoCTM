@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# PyTorch
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+logs/
+*.log
+
+# LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/
+datasets/
+*.csv
+*.json
+*.pkl
+
+# Experiments
+experiments/results/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+
+# But keep paper PDF and figures
+!integration/paper/ctm_coprocessor.pdf
+!integration/paper/figures/*.jpg
+!integration/paper/figures/*.png
+!integration/experiments/results/**/*.png
+!integration/experiments/results/**/*.pdf
+

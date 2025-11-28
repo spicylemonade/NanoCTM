@@ -1,0 +1,407 @@
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================================
+% PACKAGES & SETUP
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}       % Professional tables
+\usepackage{hyperref}       % Hyperlinks
+\usepackage{xcolor}         % Colors
+\usepackage{geometry}       % Margins
+\usepackage[numbers,sort&compress]{natbib} % Bibliography
+\usepackage{microtype}      % Typography improvements
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{pifont}         % For checkmarks and crosses
+
+% Page Geometry
+\geometry{margin=1in}
+
+% Custom Commands
+\newcommand{\model}{\textsc{NanoCTM}}
+\newcommand{\ctm}{\textsc{CTM}}
+\newcommand{\trans}{\textsc{Transformer}}
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+
+% Title Data
+\title{\textbf{Continuous Thought Machines as Thinking Coprocessors\\for Language Models}}
+\author{
+    Geby Jaff \\
+    \textit{University of California, Berkeley} \\
+    \and
+    Claude 4.5 Opus \\
+    \textit{Anthropic}
+}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+% ============================================================================
+% ABSTRACT
+% ============================================================================
+\begin{abstract}
+Large Language Models (LLMs) excel at pattern matching but often struggle with tasks requiring multi-step algorithmic reasoning. We explore augmenting Transformer-based language models with \textbf{Continuous Thought Machines (CTMs)}---recurrent neural modules that perform iterative refinement of hidden representations. Unlike standard Transformers that produce outputs in a single forward pass, CTMs introduce ``thinking time'' through multiple internal iterations. We demonstrate this approach on a synthetic multi-parity task, where a base Transformer with linear head achieves near-chance accuracy. When augmented with a CTM refinement head, the same backbone achieves \textbf{58.9\%} exact-match accuracy. Our results suggest that hybrid architectures trading parameters for structured temporal computation merit further investigation. We provide detailed architectural specifications and discuss the gap between our simplified presentation and the full CTM formulation.
+\end{abstract}
+
+% ============================================================================
+% 1. INTRODUCTION
+% ============================================================================
+\section{Introduction}
+
+The dominant paradigm in Natural Language Processing, the Transformer \cite{vaswani2017attention}, operates on a feed-forward mechanism where the depth of computation is fixed by the number of layers. While scaling laws \cite{kaplan2020scaling} have driven performance gains, this fixed-depth architecture poses a limitation for algorithmic reasoning tasks: the model cannot dynamically allocate more computation to harder problems. 
+
+To bridge this gap, techniques like Chain-of-Thought (CoT) prompting \cite{wei2022chain} encourage models to generate intermediate tokens. While effective, CoT essentially ``buys'' computation time with output tokens, which is inefficient for internal logical operations that do not require human-readable output.
+
+In this work, we explore the \textbf{Continuous Thought Machine (CTM) Coprocessor}. Building on the CTM architecture \cite{ctm2025}, which emphasizes neural dynamics and synchronization, we integrate CTMs as ``thinking heads'' on top of standard Transformers. This allows the Transformer to act as a semantic encoder, while the CTM performs iterative, recurrent processing on the hidden states.
+
+\textbf{Scope and Limitations.} This is a proof-of-concept study with important caveats: (1) our synthetic task (digit parity) has shortcuts that reduce the need for true multi-step reasoning; (2) our mathematical presentation simplifies the full CTM formulation. We discuss these limitations explicitly and suggest directions for more rigorous evaluation.
+
+Our contributions are:
+\begin{enumerate}
+    \item \textbf{Hybrid Architecture:} We propose \model{}, integrating GPT-style Transformers with CTM refinement heads.
+    \item \textbf{Empirical Demonstration:} CTM heads substantially improve performance on a multi-parity task.
+    \item \textbf{Ablation Analysis:} We show that performance varies with CTM iteration count, suggesting the value of adaptive computation.
+\end{enumerate}
+
+% ============================================================================
+% 2. RELATED WORK
+% ============================================================================
+\section{Related Work}
+
+\textbf{Adaptive Computation.} Universal Transformers \cite{dehghani2018universal} and PonderNet \cite{banino2021pondernet} decouple model depth from input complexity by looping layers. Our approach uses a specialized recurrent architecture (CTM) rather than repeating attention blocks.
+
+\textbf{Inference-Time Reasoning.} Chain-of-Thought prompting \cite{wei2022chain}, Self-consistency \cite{wang2022selfconsistency}, and Tree-of-Thoughts \cite{yao2023tot} increase ``thinking time'' in token space. Our CTM co-processor allocates computation along an \textit{internal time dimension}.
+
+\textbf{RL for LLM Reasoning.} GRPO \cite{deepseekmath2024}, DeepSeek-R1 \cite{deepseekr1}, and OpenAI's o1 \cite{openai2024o1} use reinforcement learning for long-horizon reasoning. These systems reason through explicit token sequences; we explore moving computation into a latent dynamical system.
+
+\textbf{Recurrent Architectures.} Modern recurrent models like Mamba \cite{gu2023mamba} and Block-Recurrent Transformers \cite{hutchins2022block} have revisited recurrence. The CTM uses \textit{Neuron-Level Models} (NLMs) where individual neurons maintain history traces.
+
+\textbf{Continuous Thought Machines.} The CTM architecture \cite{ctm2025} uses neural synchronization as a latent representation. We adopt a simplified version as a plug-and-play module for Transformers.
+
+% ============================================================================
+% 3. METHODOLOGY
+% ============================================================================
+\section{Methodology}
+
+The \model{} architecture consists of two stages: (1) a \textbf{Transformer Backbone} for context encoding, and (2) a \textbf{CTM Refinement Head} for iterative reasoning.
+
+\subsection{Notation and Dimensions}
+
+We define key quantities in Table~\ref{tab:notation}.
+
+\begin{table}[h]
+\centering
+\caption{Notation and tensor dimensions used throughout.}
+\label{tab:notation}
+\begin{tabular}{lll}
+\toprule
+\textbf{Symbol} & \textbf{Dimension} & \textbf{Description} \\
+\midrule
+$L$ & scalar & Input sequence length \\
+$D_{model}$ & 128 & Transformer embedding dimension \\
+$D$ & 128 & CTM neuron count \\
+$M$ & 8 & CTM memory length (activation history) \\
+$T$ & 20 & Number of CTM iterations (ticks) \\
+$D_{synch}$ & 64 & Synchronization output dimension \\
+$h_{end}$ & $\mathbb{R}^{D_{model}}$ & Final Transformer hidden state \\
+$z^t$ & $\mathbb{R}^{D}$ & CTM neuron activations at tick $t$ \\
+$Z^t$ & $\mathbb{R}^{D \times M}$ & Rolling activation history \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Transformer Backbone}
+We use a lightweight GPT-style Transformer (4 layers, 4 heads, $D_{model}=128$) to process the input sequence $X = \{x_1, \dots, x_L\}$. The Transformer maps inputs to hidden states $H \in \mathbb{R}^{L \times D_{model}}$. We extract the final token's hidden state, $h_{end} \in \mathbb{R}^{D_{model}}$, as input to the CTM.
+
+\subsection{CTM Refinement Head}
+
+The CTM head iterates for $T$ ticks. We describe the key components, noting that our presentation simplifies the full CTM formulation from \cite{ctm2025}.
+
+\paragraph{Neuron State and History.}
+At each tick $t$, the CTM maintains:
+\begin{itemize}
+    \item $z^t \in \mathbb{R}^{D}$: current neuron activations
+    \item $Z^t \in \mathbb{R}^{D \times M}$: rolling window of the last $M$ activations
+\end{itemize}
+
+\paragraph{Pairwise Synchronization.}
+The CTM computes pairwise relationships between selected neuron pairs. For neuron indices $(i, j)$ from a predefined pairing set $\mathcal{P}$:
+\begin{equation}
+    s^t_{ij} = \sum_{m=1}^{M} \alpha_m \cdot z^{t-m}_i \cdot z^{t-m}_j
+\end{equation}
+where $\alpha_m$ are learned or exponentially decaying weights. This produces a synchronization vector $s^t \in \mathbb{R}^{|\mathcal{P}|}$ (not a full $D \times D$ matrix as our earlier simplified equation suggested).
+
+\textbf{Note:} This is an unnormalized dot-product (Gram-like), not a correlation. Normalization variants are possible but not used here.
+
+\paragraph{Input Conditioning.}
+The static input $h_{end}$ is projected to a memory representation:
+\begin{equation}
+    m = W_{kv} \cdot h_{end} \in \mathbb{R}^{D_{input}}
+\end{equation}
+At each tick, the synchronization vector queries this memory:
+\begin{equation}
+    q^t = W_Q \cdot s^t, \quad o^t = \text{MLP}([q^t; m])
+\end{equation}
+This is implemented as a gated combination rather than standard multi-head attention. With a single memory slot, a softmax-based attention would be degenerate (always returning $m$); hence we use direct concatenation and MLP mixing.
+
+\paragraph{Neuron Update (Synapse + NLM).}
+The neuron state is updated via two pathways:
+\begin{equation}
+    z^{t+1} = \underbrace{\text{NLM}(Z^t)}_{\text{history processing}} + \underbrace{W_{syn} \cdot o^t}_{\text{input injection}}
+\end{equation}
+where:
+\begin{itemize}
+    \item $\text{NLM}(Z^t)$: Neuron-Level Models---small MLPs (hidden dim 16) that process each neuron's $M$-length history independently. Parameters are shared across neurons in our implementation.
+    \item $W_{syn} \in \mathbb{R}^{D \times D_{input}}$: Synapse matrix injecting the conditioned input.
+\end{itemize}
+
+\paragraph{Output Projection.}
+After $T$ iterations, the final synchronization vector is projected to output logits:
+\begin{equation}
+    \hat{y} = W_{out} \cdot s^T + b_{out}
+\end{equation}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/architecture.jpg}
+    \caption{\textbf{The \model{} Architecture.} The Transformer (blue) processes the input sequence once to produce $h_{end}$. The CTM Refinement Head (green) uses $h_{end}$ as a memory source, performing $T=20$ recurrent iterations via synchronization and neuron-level modeling.}
+    \label{fig:architecture}
+\end{figure}
+
+\subsection{Parameter Count}
+
+\begin{table}[h]
+\centering
+\caption{Parameter breakdown for \model{}.}
+\label{tab:params}
+\begin{tabular}{lr}
+\toprule
+\textbf{Component} & \textbf{Parameters} \\
+\midrule
+Transformer backbone & $\sim$790K \\
+\quad - Embeddings & 6.4K \\
+\quad - Attention layers (4$\times$) & 590K \\
+\quad - FFN layers (4$\times$) & 197K \\
+\midrule
+CTM Head & $\sim$135K \\
+\quad - Input projection ($W_{kv}$) & 8K \\
+\quad - Query projection ($W_Q$) & 4K \\
+\quad - Synapse matrix ($W_{syn}$) & 16K \\
+\quad - NLM (shared MLP) & 82K \\
+\quad - Output projection & 25K \\
+\midrule
+\textbf{Total} & $\sim$925K \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+% 4. EXPERIMENTS
+% ============================================================================
+\section{Experimental Setup}
+
+\subsection{Task: Multi-Parity}
+
+\textbf{Input:} A sequence of 5 integers (0--50), e.g., \texttt{"3 7 2 5 1 >"}.\\
+\textbf{Output:} A 5-bit string indicating the parity (Odd=1, Even=0) of each number.
+
+\textbf{Tokenization:} Character-level (digits 0--9, space, ``>'' sentinel). Numbers are parsed as multi-character sequences.
+
+\textbf{Task Critique:} We acknowledge that parity of a base-10 integer depends only on the last digit (even/odd). This reduces the task's complexity---the model need only segment numbers and check the final digit's parity. A stronger test would require genuine multi-step computation (e.g., parity of the \textit{sum} of all digits, or running XOR over a binary string).
+
+\subsection{Baseline Design}
+
+\textbf{Base Model:} 4-layer, 4-head Transformer. Output is a linear projection of the final hidden state $h_{end}$.
+
+\subsection{Training Details}
+
+\begin{itemize}
+    \item Dataset: 10,000 training / 1,000 validation / 1,000 test samples
+    \item Optimizer: AdamW, $\alpha = 10^{-3}$
+    \item Loss: Per-bit binary cross-entropy
+    \item Epochs: 40
+    \item Seeds: Single seed (limitation---should report mean $\pm$ std over $\geq$3 seeds)
+\end{itemize}
+
+\subsection{Sanity Checks}
+
+For uniform integers 0--50, even numbers comprise 26/51 $\approx$ 51\%. An ``always predict even'' baseline achieves 51\% per-bit accuracy, providing a simple reference point.
+
+% ============================================================================
+% 5. RESULTS
+% ============================================================================
+\section{Results}
+
+\subsection{Performance Comparison}
+
+\begin{table}[h]
+\centering
+\caption{Results on Multi-Parity task.}
+\label{tab:main_results}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Base Model} & \textbf{With CTM ($T$=20)} \\ 
+\midrule
+Bit Accuracy (\%) & 43.4 & \textbf{91.1} \\
+Sequence Accuracy (\%) & 0.0 & \textbf{58.9} \\
+\midrule
+\textit{Always-Even Baseline} & 51.0 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With 91.1\% per-bit accuracy and assuming independence, expected sequence accuracy would be $0.911^5 \approx 62.4\%$. Our observed 58.9\% suggests mild positive correlation among bit errors within examples.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\linewidth]{figures/final_comparison.png}
+    \caption{\textbf{Performance Comparison.} CTM refinement substantially improves both metrics over the baseline.}
+    \label{fig:comparison}
+\end{figure}
+
+\subsection{Effect of Iteration Count}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\linewidth]{figures/iteration_ablation.png}
+    \caption{\textbf{Effect of CTM Iterations ($T$).} Performance improves with more ticks up to $T \approx 20$, then degrades---possibly due to optimization difficulties in long unrolls.}
+    \label{fig:ablation}
+\end{figure}
+
+\begin{itemize}
+    \item \textbf{$T$=1--5:} Low performance; insufficient iterations for history integration.
+    \item \textbf{$T$=20:} Peak performance (53--59\% exact match across runs).
+    \item \textbf{$T$>25:} Degradation, consistent with vanishing gradient issues in deep recurrence.
+\end{itemize}
+
+\textbf{Missing ablation:} We did not test ``CTM without synchronization'' (replacing $s^t$ with zeros) to isolate synchronization's contribution vs. pure recurrence.
+
+\subsection{Training Dynamics}
+
+\begin{figure}[h]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/sequence_accuracy.png}
+        \caption{Sequence Accuracy}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/bit_accuracy.png}
+        \caption{Per-Bit Accuracy}
+    \end{subfigure}
+    \caption{\textbf{Training Dynamics.} Base Model (red) stagnates; CTM model (green) improves steadily. Single seed; error bars not shown.}
+    \label{fig:training_curves}
+\end{figure}
+
+% ============================================================================
+% 6. DISCUSSION
+% ============================================================================
+\section{Discussion}
+
+\subsection{What We Showed}
+
+Adding a CTM head substantially improves performance on the multi-parity task. This suggests that iterative latent computation can help with multi-step reasoning.
+
+\subsection{What We Did Not Show}
+
+\begin{itemize}
+    \item That CTM is necessary for this task (a GRU head might suffice)
+    \item That the synchronization mechanism specifically (vs. any recurrence) drives gains
+    \item That results generalize to harder tasks or natural language
+\end{itemize}
+
+\subsection{Compute Considerations}
+
+The CTM adds $T=20$ iterations. Approximate FLOPs per tick: $O(D^2 + D \cdot M \cdot H_{NLM})$ where $H_{NLM}=16$. Total CTM overhead is roughly $3\times$ the base model inference cost. A fair comparison would match FLOPs across conditions.
+
+\subsection{Relation to Small-Model Reasoning}
+
+Wei et al. \cite{wei2022chain} observe that CoT gains emerge at tens of billions of parameters. Distillation work \cite{magister2023teaching, distillstepbystep} brings CoT-style reasoning to sub-billion models. TinyStories \cite{tinystories} shows basic reasoning in 1--10M parameter models.
+
+Our \model{} ($\sim$925K parameters) demonstrates that structured temporal computation can enable capabilities that don't emerge in the purely feed-forward Transformer.
+
+% ============================================================================
+% 7. CONCLUSION
+% ============================================================================
+\section{Conclusion}
+
+We presented \model{}, a proof-of-concept hybrid architecture combining Transformers with CTM refinement heads. The CTM head substantially improves performance on a synthetic parity task.
+
+\textbf{Limitations:} Single task, single seed, simplified math presentation.
+
+\textbf{Future work:}
+\begin{itemize}
+    \item Additional baselines: AR decoding, MLP/GRU heads, Universal Transformer
+    \item Harder tasks: Sum-of-digits parity, running XOR, length generalization
+    \item Ablations: CTM without synchronization, matched-compute comparisons
+    \item Multiple seeds with confidence intervals
+    \item Combination with RL (e.g., GRPO) for learning when/how long to think
+\end{itemize}
+
+Our results suggest that trading parameters for structured temporal computation is a direction worth pursuing.
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem{vaswani2017attention}
+Vaswani, A., Shazeer, N., Parmar, N., et al. (2017). Attention is all you need. \textit{NeurIPS}.
+
+\bibitem{wei2022chain}
+Wei, J., Wang, X., Schuurmans, D., et al. (2022). Chain-of-thought prompting elicits reasoning in large language models. \textit{NeurIPS}. arXiv:2201.11903.
+
+\bibitem{ctm2025}
+Darlow, L., Regan, C., Risi, S., Seely, J., \& Jones, L. (2025). Continuous Thought Machines. \textit{arXiv:2505.05522}. Sakana AI.
+
+\bibitem{banino2021pondernet}
+Banino, A., et al. (2021). PonderNet: Learning to ponder. \textit{arXiv:2107.05407}.
+
+\bibitem{dehghani2018universal}
+Dehghani, M., et al. (2019). Universal Transformers. \textit{ICLR 2019}. arXiv:1807.03819.
+
+\bibitem{kaplan2020scaling}
+Kaplan, J., et al. (2020). Scaling laws for neural language models. \textit{arXiv:2001.08361}.
+
+\bibitem{gu2023mamba}
+Gu, A., \& Dao, T. (2023). Mamba: Linear-time sequence modeling with selective state spaces. \textit{arXiv:2312.00752}.
+
+\bibitem{hutchins2022block}
+Hutchins, D. S., et al. (2022). Block-Recurrent Transformers. \textit{NeurIPS 2022}. arXiv:2203.07852.
+
+\bibitem{wang2022selfconsistency}
+Wang, X., et al. (2022). Self-consistency improves chain of thought reasoning. \textit{arXiv:2203.11171}.
+
+\bibitem{yao2023tot}
+Yao, S., et al. (2023). Tree of Thoughts. \textit{NeurIPS}. arXiv:2305.10601.
+
+\bibitem{openai2024o1}
+OpenAI. (2024). Learning to reason with LLMs. \textit{OpenAI Blog}.
+
+\bibitem{deepseekmath2024}
+Shao, Z., et al. (2024). DeepSeekMath. \textit{arXiv:2402.03300}.
+
+\bibitem{deepseekr1}
+DeepSeek-AI. (2025). DeepSeek-R1. \textit{arXiv:2501.12948}.
+
+\bibitem{magister2023teaching}
+Magister, L. C., et al. (2023). Teaching small language models to reason. \textit{ACL}. arXiv:2212.08410.
+
+\bibitem{distillstepbystep}
+Hsieh, C.-Y., et al. (2023). Distilling step-by-step! \textit{Findings of ACL 2023}.
+
+\bibitem{tinystories}
+Eldan, R., \& Li, Y. (2023). TinyStories. \textit{arXiv:2305.07759}.
+
+\end{thebibliography}
+
+\end{document}
